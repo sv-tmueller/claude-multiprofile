@@ -9,8 +9,8 @@ Claude Code stores its configuration and session data in a directory on your mac
 ## Step 1: Create Separate Config Directories
 Open your terminal and run:
 ```
-mkdir -p ~/.claude-account1
-mkdir -p ~/.claude-account2
+mkdir -p ~/.claude-personal
+mkdir -p ~/.claude-work
 ```
 The `-p` flag ensures the command runs safely even if the directories already exist. Name these whatever makes sense for you — for example, `~/.claude-personal` and `~/.claude-work`.
 
