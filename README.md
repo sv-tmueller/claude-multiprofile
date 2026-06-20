@@ -77,6 +77,82 @@ Inside Claude Code, you can confirm the active session by running:
 ```
 /status
 ```
+## Using the Claude Desktop App (macOS)
+
+The aliases above only affect terminals. A desktop app launched from the Dock or Finder is started by macOS `launchd`, not your shell, so it never sees the `CLAUDE_CONFIG_DIR` you set in `~/.zshrc`. It falls back to the default `~/.claude`, where your profile's config (skills, settings, saved sessions) is not stored.
+
+To point the desktop app at a profile, set `CLAUDE_CONFIG_DIR` at the macOS login-session level with a LaunchAgent that runs once at login.
+
+This points the Claude Code surface of the desktop app (the coding/agent mode) at a profile's config directory: its skills, settings, and saved sessions. Whether it also switches the signed-in account is not yet confirmed (tracked in issue #3). The plain chat does not load your Claude Code skills regardless of this setting. This relies on current desktop-app behavior that Anthropic does not document, so it may change.
+
+### Step 1: Create the LaunchAgent
+
+Pick the profile the desktop app should use, then create a plist. Replace `<you>` with your macOS username. The path must be absolute, because `launchctl` does not expand `~`.
+
+Create `~/Library/LaunchAgents/com.<you>.claude-config-dir.plist`:
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.<you>.claude-config-dir</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/launchctl</string>
+		<string>setenv</string>
+		<string>CLAUDE_CONFIG_DIR</string>
+		<string>/Users/<you>/.claude-personal</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+</dict>
+</plist>
+```
+
+For the work profile, use `/Users/<you>/.claude-work` as the path instead.
+
+### Step 2: Load It and Verify
+
+Load the agent now (it also runs automatically at every login, so it survives reboots):
+
+```
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
+launchctl getenv CLAUDE_CONFIG_DIR
+```
+
+The second command should print the path you set. Fully quit and reopen the desktop app, and its Claude Code surface will use that profile. Confirm inside the app with:
+
+```
+/status
+```
+
+### Step 3: Switch Profiles
+
+A LaunchAgent sets one value for the whole login session, so the desktop app uses one profile at a time. To switch for the current session, point the variable at the other directory and restart the app:
+
+```
+launchctl setenv CLAUDE_CONFIG_DIR /Users/<you>/.claude-work
+```
+
+To make the switch stick across reboots, edit the path in the plist, then reload it:
+
+```
+launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
+```
+
+Running the personal and work apps at the same time is not possible this way (one session, one value). That goal, two launchers with one account each, is tracked in issue #3.
+
+### Removing It
+
+```
+launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
+rm ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
+launchctl unsetenv CLAUDE_CONFIG_DIR
+```
+
 ## Pro Tips
 Per-project defaults: If a project always uses a specific account, add `CLAUDE_CONFIG_DIR=~/.claude-account1` to a .env file in that project's root directory.
 
