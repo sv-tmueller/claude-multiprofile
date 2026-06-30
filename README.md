@@ -47,7 +47,7 @@ alias claude="echo 'Use specific commands: claude-personal or claude-work'"
 ```
 The third alias is optional. It overrides the plain `claude` command with a helpful reminder, so you never accidentally launch Claude without the right account context.
 
-Be aware this breaks non-interactive use of `claude`: `claude -p "..."`, piping, scripts, and IDE or MCP integrations that shell out to `claude` will hit the reminder message instead of running. For a one-off real invocation while the alias is active, bypass it with `command claude ...` or `\claude ...`.
+Be aware this shadows the plain `claude` command in your interactive shell. Anything you type yourself there, like `claude -p "..."` or piping into `claude`, hits the reminder instead of running. Scripts and most IDE or MCP integrations call the binary directly, so they are not affected. If you do need a one-off real invocation in your interactive shell, bypass the alias with `command claude ...` or `\claude ...`.
 
 Save the file and reload your shell:
 ```
