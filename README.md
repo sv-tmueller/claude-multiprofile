@@ -83,7 +83,7 @@ The aliases above only affect terminals. A desktop app launched from the Dock or
 
 To point the desktop app at a profile, set `CLAUDE_CONFIG_DIR` at the macOS login-session level with a LaunchAgent that runs once at login.
 
-This points the Claude Code surface of the desktop app (the coding/agent mode) at a profile's config directory: its skills, settings, and saved sessions. Whether it also switches the signed-in account is not yet confirmed (tracked in issue #3). The plain chat does not load your Claude Code skills regardless of this setting. This relies on current desktop-app behavior that Anthropic does not document, so it may change.
+This points the Claude Code surface of the desktop app (the coding/agent mode) at a profile's config directory: its skills, settings, and saved sessions. It does not change the app's own signed-in (chat) account, which follows the app's user-data directory instead; see [Running two desktop apps side by side](#running-two-desktop-apps-side-by-side-macos). The plain chat does not load your Claude Code skills regardless of this setting. This relies on current desktop-app behavior that Anthropic does not document, so it may change.
 
 ### Step 1: Create the LaunchAgent
 
@@ -143,7 +143,7 @@ launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
 ```
 
-Running the personal and work apps at the same time is not possible this way (one session, one value). That goal, two launchers with one account each, is tracked in issue #3.
+Running the personal and work apps at the same time is not possible this way (one session, one value). For that, see [Running two desktop apps side by side](#running-two-desktop-apps-side-by-side-macos).
 
 ### Removing It
 
@@ -152,6 +152,36 @@ launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
 rm ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
 launchctl unsetenv CLAUDE_CONFIG_DIR
 ```
+
+## Running two desktop apps side by side (macOS)
+
+The LaunchAgent above sets one `CLAUDE_CONFIG_DIR` for the whole login session, so the desktop app uses one profile at a time. Running a personal and a work window at the same time needs a different lever.
+
+The desktop app keeps its signed-in account in its own Electron user-data directory (`~/Library/Application Support/Claude`), separate from `CLAUDE_CONFIG_DIR`. Point a launch at a different user-data directory with `--user-data-dir` and it runs as a separate account, alongside the default one. Each directory keeps its own login and its own instance lock, so both can run at once.
+
+### One command
+
+Start a second instance on its own profile directory:
+
+```
+open -n /Applications/Claude.app --args --user-data-dir="$HOME/Library/Application Support/Claude-personal"
+```
+
+`open -n` forces a new instance and `--args` passes the flag to the app. A new directory starts signed out, so log in with the account you want for it. The plain Dock icon keeps using the default directory, so it stays your other account.
+
+### A Dock launcher per account
+
+Typing that every time is tedious, and running it again while that profile is already open starts a second copy on the same directory, which can corrupt its data (the app's single-instance lock does not stop this). The `make-claude-launcher.sh` script builds a small launcher app that avoids both: it starts the profile if it is not running, and brings Claude to the front if it already is.
+
+```
+./make-claude-launcher.sh Personal "$HOME/Library/Application Support/Claude-personal"
+```
+
+This creates `~/Applications/Claude Personal.app` with Claude's icon. Pin it to the Dock and click it to open or focus that account. Run it again with a different name and directory for each account you want a launcher for, and give each profile its own directory, distinct from the default one the plain icon uses.
+
+### Trade-off
+
+Both running instances still show as "Claude" in the Dock and app switcher, so you tell them apart by their windows, not the switcher. For fully separate Dock identities you would duplicate the app bundle under its own bundle identifier, which is heavier and stops the copy from auto-updating.
 
 ## Pro Tips
 Per-project defaults: If a project always uses a specific account, add `CLAUDE_CONFIG_DIR=~/.claude-account1` to a .env file in that project's root directory.
