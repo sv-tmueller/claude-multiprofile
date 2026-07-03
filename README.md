@@ -104,7 +104,7 @@ The aliases above only affect terminals. A desktop app launched from the Dock or
 
 To point the desktop app at a profile, set `CLAUDE_CONFIG_DIR` at the macOS login-session level with a LaunchAgent that runs once at login.
 
-This points the Claude Code surface of the desktop app (the coding/agent mode) at a profile's config directory: its skills, settings, and saved sessions. Whether it also switches the signed-in account is not yet confirmed (tracked in issue #3). The plain chat does not load your Claude Code skills regardless of this setting. This relies on current desktop-app behavior that Anthropic does not document, so it may change.
+This points the Claude Code surface of the desktop app (the coding/agent mode) at a profile's config directory: its skills, settings, and saved sessions. It does not change the app's own signed-in (chat) account; running a second account is covered in [Running two desktop apps side by side](#running-two-desktop-apps-side-by-side-macos). The plain chat does not load your Claude Code skills regardless of this setting. This relies on current desktop-app behavior that Anthropic does not document, so it may change.
 
 ### Step 1: Create the LaunchAgent
 
@@ -164,7 +164,7 @@ launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
 ```
 
-Running the personal and work apps at the same time is not possible this way (one session, one value). That goal, two launchers with one account each, is tracked in issue #3.
+Running the personal and work apps at the same time is not possible this way (one session, one value). For that, see [Running two desktop apps side by side](#running-two-desktop-apps-side-by-side-macos).
 
 ### Removing It
 
@@ -173,3 +173,34 @@ launchctl bootout gui/$(id -u)/com.<you>.claude-config-dir
 rm ~/Library/LaunchAgents/com.<you>.claude-config-dir.plist
 launchctl unsetenv CLAUDE_CONFIG_DIR
 ```
+
+## Running two desktop apps side by side (macOS)
+
+The LaunchAgent above sets one `CLAUDE_CONFIG_DIR` for the whole login session, so it does not help here. To run two accounts at once you open the app more than once, each on its own Electron user-data directory with `--user-data-dir`. Each directory keeps that profile's local data (chat history, settings, window state) separate, which is what lets a second account exist at all.
+
+### The ordering rule
+
+One quirk decides everything: the desktop app shows your **default** account (the one in `~/Library/Application Support/Claude`) on the **first** window it opens, whatever `--user-data-dir` that window was given. Only the **second and later** windows show the account of their own directory. So the order matters: **open your default account first, then the others.** Keep that first window open; it is what lets the later ones stay on their own accounts.
+
+### Set it up (new machine)
+
+1. Install the Claude desktop app and sign in to your main account. That is your default account, stored in `~/Library/Application Support/Claude`.
+2. Build a launcher for each additional account with [`make-claude-launcher.sh`](make-claude-launcher.sh), giving each its own user-data directory:
+
+   ```
+   ./make-claude-launcher.sh Personal "$HOME/Library/Application Support/Claude-personal"
+   ```
+
+   That creates `~/Applications/Claude Personal.app`. Pin it to the Dock. Repeat for any other account (`Work`, `Client`, and so on), each with its own directory.
+3. Log in once per extra account: open your **default** account first (the plain Claude icon), then click the extra launcher and sign in to that account in the new window.
+4. Day to day, open your default account first, then the others, and keep that first window open.
+
+Each launcher just runs `open -n /Applications/Claude.app --args --user-data-dir=<its dir>`, and only if that dir is not already running, so a second click will not pile up duplicate windows. You can do the same by hand without a launcher:
+
+```
+open -n /Applications/Claude.app --args --user-data-dir="$HOME/Library/Application Support/Claude-personal"
+```
+
+### Trade-off
+
+Both running instances still show as "Claude" in the Dock and app switcher, so you tell them apart by their windows, not the switcher. `--user-data-dir` separates each profile's data and lets the second account exist, but it does not, on its own, control which account the first window shows.
