@@ -28,6 +28,11 @@ You’ll get output like: (If you already installed it globally via npm)
 TM@Mac ~ % type -a claude
 claude is /Users/TM/.local/bin/claude
 ```
+Alternatively output like: (If you installed via homebrew)
+```
+TM@MBP ~ % type -a claude
+claude is /opt/homebrew/bin/claude
+```
 Copy the path
 
 ## Step 3: Set Up Shell Aliases
