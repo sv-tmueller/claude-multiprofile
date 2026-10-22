@@ -209,3 +209,7 @@ open -n /Applications/Claude.app --args --user-data-dir="$HOME/Library/Applicati
 ### Trade-off
 
 Both running instances still show as "Claude" in the Dock and app switcher, so you tell them apart by their windows, not the switcher. `--user-data-dir` separates each profile's data and lets the second account exist, but it does not, on its own, control which account the first window shows.
+
+## License
+
+© 2026 Thomas Mueller. All rights reserved. Source shown for reference only.
