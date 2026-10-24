@@ -1,19 +1,20 @@
 # claude-multiprofile
 
-A CLI guide to running multiple Claude Code profiles (accounts) on your local machine.
+A CLI guide to running multiple Claude Code profiles (Claude accounts or third-party model endpoints) on your local machine.
 
-If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup.
+If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup. The same mechanism also gives you a third profile, `claude-kimik3`, that runs Claude Code on [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) through OpenRouter.
 
 ## How It Works
-Claude Code stores its configuration and session data in a directory on your machine (typically `~/.claude`). The key insight is that you can point Claude Code to a different config directory for each account using the `CLAUDE_CONFIG_DIR` environment variable. Each directory holds its own independent session, so accounts never interfere with each other.
+Claude Code stores its configuration and session data in a directory on your machine (typically `~/.claude`). The key insight is that you can point Claude Code to a different config directory for each profile using the `CLAUDE_CONFIG_DIR` environment variable. Each directory holds its own independent session, so profiles never interfere with each other. A profile is either a Claude account (you log in with `/login`) or a third-party model endpoint (a `settings.json` that points at another API); either way it is a directory picked with `CLAUDE_CONFIG_DIR`.
 
 ## Step 1: Create Separate Config Directories
 Open your terminal and run:
 ```
 mkdir -p ~/.claude-personal
 mkdir -p ~/.claude-work
+mkdir -p ~/.claude-kimik3
 ```
-The `-p` flag ensures the command runs safely even if the directories already exist. Name these whatever makes sense for you — for example, `~/.claude-personal` and `~/.claude-work`.
+The `-p` flag ensures the command runs safely even if the directories already exist. Name these whatever makes sense for you — for example, `~/.claude-personal` and `~/.claude-work` for your accounts, and `~/.claude-kimik3` for the OpenRouter model profile.
 
 ## Step 2: Find Your Claude Binary Path
 Before setting up aliases, you need the real path to the Claude Code binary. Since we’ll be overriding the default `claude` command, you need to reference the binary directly.
@@ -48,9 +49,12 @@ Add the following aliases, replacing the binary path with yours and the director
 ```
 alias claude-personal='CLAUDE_CONFIG_DIR=~/.claude-personal /Users/TM/.local/bin/claude'
 alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude'
-alias claude="echo 'Use specific commands: claude-personal or claude-work'"
+alias claude-kimik3='CLAUDE_CONFIG_DIR=~/.claude-kimik3 ANTHROPIC_AUTH_TOKEN="$(security find-generic-password -s openrouter-api-key -w)" /Users/TM/.local/bin/claude'
+alias claude="echo 'Use specific commands: claude-personal, claude-work, or claude-kimik3'"
 ```
-The third alias is optional. It overrides the plain `claude` command with a helpful reminder, so you never accidentally launch Claude without the right account context.
+The `claude-kimik3` alias reads the OpenRouter key from the macOS Keychain at each launch and passes it as `ANTHROPIC_AUTH_TOKEN`, so the key is never in `~/.zshrc`. You store the key in Step 4. To keep this alias identical to the others, use the `apiKeyHelper` setting described in [Step 4](#step-4-configure-each-profile).
+
+The last alias is optional. It overrides the plain `claude` command with a helpful reminder, so you never accidentally launch Claude without the right account context.
 
 Be aware this shadows the plain `claude` command in your interactive shell. Anything you type yourself there, like `claude -p "..."` or piping into `claude`, hits the reminder instead of running. Scripts and most IDE or MCP integrations call the binary directly, so they are not affected. If you do need a one-off real invocation in your interactive shell, bypass the alias with `command claude ...` or `\claude ...`.
 
@@ -59,8 +63,8 @@ Save the file and reload your shell:
 source ~/.zshrc
 ```
 
-## Step 4: Authenticate Each Account
-Now log in to each account separately.
+## Step 4: Configure Each Profile
+The two Claude accounts log in with `/login`. The OpenRouter profile gets a settings file and a Keychain entry instead.
 
 Account 1:
 ```
@@ -82,24 +86,68 @@ Once Claude Code launches, run:
 ```
 A browser window will open. Sign in with the credentials for account 2. The session is saved to `~/.claude-work`.
 
+Profile 3 (OpenRouter model):
+
+Be aware that Anthropic does not support routing Claude Code to non-Claude models through any gateway ([LLM gateway guide](https://code.claude.com/docs/en/llm-gateway.md)). Known side effects ([gateway connection guide](https://code.claude.com/docs/en/llm-gateway-connect.md)): Remote Control is off while the base URL is non-Anthropic, `/fast` may report unavailable, and unrecognized fields can return HTTP 400.
+
+Store your OpenRouter API key in the macOS Keychain:
+```
+security add-generic-password -a "$USER" -s openrouter-api-key -w
+```
+Because `-w` comes last with no value, `security` prompts for the key, so it stays out of your shell history.
+
+Create `~/.claude-kimik3/settings.json`:
+```
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "moonshotai/kimi-k3.1-pro",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "moonshotai/kimi-k3.1-pro",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "moonshotai/kimi-k3.1-pro",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "moonshotai/kimi-k3.1-pro",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "moonshotai/kimi-k3.1-pro",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "moonshotai/kimi-k3.1-pro",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1048576",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000"
+  }
+}
+```
+The blank `ANTHROPIC_API_KEY` follows [OpenRouter's Claude Code guide](https://openrouter.ai/docs/guides/guides/claude-code-integration). The model variables keep every tier and subagent on Kimi ([model configuration](https://code.claude.com/docs/en/model-config.md)). `CLAUDE_CODE_MAX_CONTEXT_TOKENS` tells Claude Code the context window of a model ID it does not recognize (otherwise it assumes 200k and warns at launch), and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` sets the compaction threshold below that, as documented in the [environment variables reference](https://code.claude.com/docs/en/env-vars.md). The API key is deliberately not in this file.
+
+To drop the `ANTHROPIC_AUTH_TOKEN=...` part from the alias, add `"apiKeyHelper": "security find-generic-password -s openrouter-api-key -w"` to this file. Claude Code sends the helper's output in both auth headers and caches it for five minutes by default ([`apiKeyHelper` reference](https://code.claude.com/docs/en/settings-reference#apikeyhelper)). This follows the documentation; I have not tested it.
+
+This profile is CLI-only: Claude Desktop does not read these variables ([authentication](https://code.claude.com/docs/en/authentication.md)).
+
 ## Step 5: Verify Everything Works
 Test your setup:
 ```
 claude-personal  # Should launch Claude Code with account 1
 claude-work      # Should launch Claude Code with account 2
+claude-kimik3    # Should launch Claude Code on Kimi K3.1 Pro through OpenRouter
 claude           # Only if you added the optional alias in Step 3; should print the reminder
 ```
 Inside Claude Code, you can confirm the active session by running:
 ```
 /status
 ```
+For `claude-kimik3`, `/status` should show `Auth token: ANTHROPIC_AUTH_TOKEN` and `Anthropic base URL: https://openrouter.ai/api`. If it names `ANTHROPIC_API_KEY` or a Claude login instead, the alias or settings file did not reach the session.
 
 ## Pro Tips
-Per-project defaults: If a project always uses a specific account, add `CLAUDE_CONFIG_DIR=~/.claude-account1` to a .env file in that project's root directory.
+Per-project defaults: You can't pick the profile from inside a project. Claude Code ignores `CLAUDE_CONFIG_DIR` in project and local settings files ([env-vars reference](https://code.claude.com/docs/en/env-vars.md)), and it does not read `.env` files. Set the variable in your shell before Claude Code starts: add a per-project alias, or use a tool like [direnv](https://direnv.net) that exports it when you enter the project directory.
 
 Descriptive names: Use meaningful names like `claude-personal`, `claude-clientname`, or `claude-work` instead of generic numbers. Your future self will thank you.
 
 NVM users: If you manage Node versions with NVM, your Claude binary path includes the Node version (e.g., `.nvm/versions/node/v24.6.0/bin/claude`). If you upgrade Node, remember to update your aliases.
+
+Fresh profiles start empty: User settings, `CLAUDE.md`, skills, plugins, and your login all belong to the config directory (on macOS the login is a Keychain entry keyed to that directory), so a new profile has none of them. To share skills and your global `CLAUDE.md` from an existing profile, symlink them right after Step 1, while the new directory is still empty:
+```
+ln -s ~/.claude-personal/skills ~/.claude-kimik3/skills
+ln -s ~/.claude-personal/CLAUDE.md ~/.claude-kimik3/CLAUDE.md
+```
+Do not symlink `plugins/` or `settings.json`. Each profile keeps its own plugin install record, and `settings.json` is what makes a profile different: sharing it would point your account profile at OpenRouter, or strip the OpenRouter settings from `claude-kimik3`.
+
+Data handling (as of October 2026): Kimi K3.1 Pro is not available through OpenRouter's EU in-region routing ([model listing](https://openrouter.ai/moonshotai/kimi-k3.1-pro)), so do not use the `claude-kimik3` profile on customer repositories.
 
 ## Using the Claude Desktop App (macOS, Optional)
 
