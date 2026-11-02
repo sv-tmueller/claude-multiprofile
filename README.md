@@ -2,7 +2,7 @@
 
 A CLI guide to running multiple Claude Code profiles (Claude accounts or third-party model endpoints) on your local machine.
 
-If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup. The same mechanism also gives you a third profile, `claude-kimik3`, that runs Claude Code on [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) through OpenRouter.
+If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup. The same mechanism also gives you a third profile, `claude-kimik3`, that runs Claude Code on [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) through OpenRouter, and a fourth, `claude-noris`, that runs it on self-hosted models from [noris network](https://www.noris.de)'s AI gateway.
 
 ## How It Works
 Claude Code stores its configuration and session data in a directory on your machine (typically `~/.claude`). The key insight is that you can point Claude Code to a different config directory for each profile using the `CLAUDE_CONFIG_DIR` environment variable. Each directory holds its own independent session, so profiles never interfere with each other. A profile is either a Claude account (you log in with `/login`) or a third-party model endpoint (a `settings.json` that points at another API); either way it is a directory picked with `CLAUDE_CONFIG_DIR`.
@@ -13,8 +13,9 @@ Open your terminal and run:
 mkdir -p ~/.claude-personal
 mkdir -p ~/.claude-work
 mkdir -p ~/.claude-kimik3
+mkdir -p ~/.claude-noris
 ```
-The `-p` flag ensures the command runs safely even if the directories already exist. Name these whatever makes sense for you — for example, `~/.claude-personal` and `~/.claude-work` for your accounts, and `~/.claude-kimik3` for the OpenRouter model profile.
+The `-p` flag ensures the command runs safely even if the directories already exist. Name these whatever makes sense for you, for example `~/.claude-personal` and `~/.claude-work` for your accounts, `~/.claude-kimik3` for the OpenRouter model profile, and `~/.claude-noris` for the noris profile.
 
 ## Step 2: Find Your Claude Binary Path
 Before setting up aliases, you need the real path to the Claude Code binary. Since we’ll be overriding the default `claude` command, you need to reference the binary directly.
@@ -50,9 +51,10 @@ Add the following aliases, replacing the binary path with yours and the director
 alias claude-personal='CLAUDE_CONFIG_DIR=~/.claude-personal /Users/TM/.local/bin/claude'
 alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude'
 alias claude-kimik3='CLAUDE_CONFIG_DIR=~/.claude-kimik3 ANTHROPIC_AUTH_TOKEN="$(security find-generic-password -s openrouter-api-key -w)" /Users/TM/.local/bin/claude'
-alias claude="echo 'Use specific commands: claude-personal, claude-work, or claude-kimik3'"
+alias claude-noris='CLAUDE_CONFIG_DIR=~/.claude-noris /Users/TM/.local/bin/claude'
+alias claude="echo 'Use specific commands: claude-personal, claude-work, claude-kimik3, or claude-noris'"
 ```
-The `claude-kimik3` alias reads the OpenRouter key from the macOS Keychain at each launch and passes it as `ANTHROPIC_AUTH_TOKEN`, so the key is never in `~/.zshrc`. You store the key in Step 4. To keep this alias identical to the others, use the `apiKeyHelper` setting described in [Step 4](#step-4-configure-each-profile).
+The `claude-kimik3` alias reads the OpenRouter key from the macOS Keychain at each launch and passes it as `ANTHROPIC_AUTH_TOKEN`, so the key is never in `~/.zshrc`. You store the key in Step 4. To keep this alias identical to the others, use the `apiKeyHelper` setting described in [Step 4](#step-4-configure-each-profile). The `claude-noris` alias already works that way: its key comes from `apiKeyHelper` in the profile's settings file.
 
 The last alias is optional. It overrides the plain `claude` command with a helpful reminder, so you never accidentally launch Claude without the right account context.
 
@@ -64,7 +66,7 @@ source ~/.zshrc
 ```
 
 ## Step 4: Configure Each Profile
-The two Claude accounts log in with `/login`. The OpenRouter profile gets a settings file and a Keychain entry instead.
+The two Claude accounts log in with `/login`. The OpenRouter and noris profiles get a settings file and a stored API key instead.
 
 Account 1:
 ```
@@ -115,9 +117,68 @@ Create `~/.claude-kimik3/settings.json`:
 ```
 The blank `ANTHROPIC_API_KEY` follows [OpenRouter's Claude Code guide](https://openrouter.ai/docs/guides/guides/claude-code-integration). The model variables keep every tier and subagent on Kimi ([model configuration](https://code.claude.com/docs/en/model-config.md)). `CLAUDE_CODE_MAX_CONTEXT_TOKENS` tells Claude Code the context window of a model ID it does not recognize (otherwise it assumes 200k and warns at launch), and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` sets the compaction threshold below that, as documented in the [environment variables reference](https://code.claude.com/docs/en/env-vars.md). The API key is deliberately not in this file.
 
-To drop the `ANTHROPIC_AUTH_TOKEN=...` part from the alias, add `"apiKeyHelper": "security find-generic-password -s openrouter-api-key -w"` to this file. Claude Code sends the helper's output in both auth headers and caches it for five minutes by default ([`apiKeyHelper` reference](https://code.claude.com/docs/en/settings-reference#apikeyhelper)). This follows the documentation; I have not tested it.
+To drop the `ANTHROPIC_AUTH_TOKEN=...` part from the alias, add `"apiKeyHelper": "security find-generic-password -s openrouter-api-key -w"` to this file. Claude Code sends the helper's output in both auth headers and caches it for five minutes by default ([`apiKeyHelper` reference](https://code.claude.com/docs/en/settings-reference#apikeyhelper)). I tested `apiKeyHelper` with the noris profile below on Linux, reading the key from a file; the Keychain command here is untested.
 
 This profile is CLI-only: Claude Desktop does not read these variables ([authentication](https://code.claude.com/docs/en/authentication.md)).
+
+Profile 4 (noris network, self-hosted vLLM):
+
+noris network serves open-weight models (for example GLM and DeepSeek, run on vLLM) behind a [Bifrost](https://github.com/maximhq/bifrost) gateway at `https://ai.noris.de`. The gateway speaks two APIs, and Claude Code only speaks one of them:
+
+- `https://ai.noris.de/v1` is the OpenAI-format API. This is the URL noris gives you, and the one OpenAI-style clients use. Claude Code cannot use it.
+- `https://ai.noris.de/anthropic` is the Anthropic Messages API. Claude Code appends `/v1/messages` to its base URL, so this is the base URL to use.
+
+The gateway caveats from Profile 3 apply here too.
+
+Store your noris API key. On macOS, in the Keychain:
+```
+security add-generic-password -a "$USER" -s noris-api-key -w
+```
+On Linux, in a file only you can read (`read -s` prompts for the key, so it stays out of your shell history):
+```
+mkdir -p ~/.config/noris && chmod 700 ~/.config/noris
+read -rs K && (umask 077; printf '%s' "$K" > ~/.config/noris/api-key); unset K
+```
+
+List the model IDs and context lengths your key can use:
+```
+K="$(cat ~/.config/noris/api-key)"   # macOS: K="$(security find-generic-password -s noris-api-key -w)"
+curl -s https://ai.noris.de/v1/models -H "Authorization: Bearer $K" | jq '.data[] | {id, max_model_len, context_length}'
+```
+
+Optionally, check that the model can call tools through the Anthropic route. Claude Code depends on tool calls, so a model that answers in plain text here will not be able to edit files:
+```
+curl -s https://ai.noris.de/anthropic/v1/messages \
+  -H "Authorization: Bearer $K" -H "x-api-key: $K" \
+  -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
+  -d '{"model":"vllm/release/glm-5-3","max_tokens":200,
+       "tools":[{"name":"get_time","description":"Get the time","input_schema":{"type":"object","properties":{}}}],
+       "messages":[{"role":"user","content":"Call get_time."}]}'
+```
+A working setup returns `"type":"message"` with a `tool_use` block and `"stop_reason":"tool_use"`.
+
+Create `~/.claude-noris/settings.json`. Use `"apiKeyHelper": "security find-generic-password -s noris-api-key -w"` on macOS:
+```
+{
+  "apiKeyHelper": "cat ~/.config/noris/api-key",
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://ai.noris.de/anthropic",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_MODEL": "vllm/release/glm-5-3",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "vllm/release/glm-5-3",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "vllm/release/glm-5-3",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "vllm/release/deepseek-v41-flash",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "vllm/release/deepseek-v41-flash"
+  }
+}
+```
+Unlike the Kimi profile, this one maps the tiers to two models: the larger GLM model for the main session and anything that asks for `opus` or `fable`, and the faster DeepSeek model for `sonnet` and `haiku`. `CLAUDE_CODE_SUBAGENT_MODEL` is left out on purpose, so each subagent keeps the tier its definition asks for. Swap in any IDs from the `/v1/models` list. The gateway accepts the `vllm/release/` prefix and reports the model back as `release/<model>`.
+
+If the model list shows a context length, add `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (the smaller of the two models' values) and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (a bit below it) to `env`, as in Profile 3. Without them, Claude Code assumes 200k.
+
+If a request fails with HTTP 400, add `"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"` to `env` first. Gateways that translate between APIs often reject beta headers they do not know.
+
+This profile is CLI-only as well. Before you use it on customer repositories, check that noris's data processing terms cover that code.
 
 ## Step 5: Verify Everything Works
 Test your setup:
@@ -125,6 +186,7 @@ Test your setup:
 claude-personal  # Should launch Claude Code with account 1
 claude-work      # Should launch Claude Code with account 2
 claude-kimik3    # Should launch Claude Code on Kimi K3.1 Pro through OpenRouter
+claude-noris     # Should launch Claude Code on noris-hosted models
 claude           # Only if you added the optional alias in Step 3; should print the reminder
 ```
 Inside Claude Code, you can confirm the active session by running:
@@ -132,6 +194,8 @@ Inside Claude Code, you can confirm the active session by running:
 /status
 ```
 For `claude-kimik3`, `/status` should show `Auth token: ANTHROPIC_AUTH_TOKEN` and `Anthropic base URL: https://openrouter.ai/api`. If it names `ANTHROPIC_API_KEY` or a Claude login instead, the alias or settings file did not reach the session.
+
+For `claude-noris`, `/status` should show `Anthropic base URL: https://ai.noris.de/anthropic`. If it shows `https://ai.noris.de/v1` or no base URL, fix `ANTHROPIC_BASE_URL` in `~/.claude-noris/settings.json`.
 
 ## Pro Tips
 Per-project defaults: You can't pick the profile from inside a project. Claude Code ignores `CLAUDE_CONFIG_DIR` in project and local settings files ([env-vars reference](https://code.claude.com/docs/en/env-vars.md)), and it does not read `.env` files. Set the variable in your shell before Claude Code starts: add a per-project alias, or use a tool like [direnv](https://direnv.net) that exports it when you enter the project directory.
