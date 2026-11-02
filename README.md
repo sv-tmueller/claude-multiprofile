@@ -139,6 +139,7 @@ On Linux, in a file only you can read (`read -s` prompts for the key, so it stay
 mkdir -p ~/.config/noris && chmod 700 ~/.config/noris
 read -rs K && (umask 077; printf '%s' "$K" > ~/.config/noris/api-key); unset K
 ```
+Run the `read` line on its own, paste the key, and press Enter once. The prompt shows nothing, so if it gets an empty line instead (an extra Enter, or a multi-line paste), it silently writes an empty key file. Check the file with `wc -c < ~/.config/noris/api-key`: the result should be the length of your key, not 0.
 
 List the model IDs and context lengths your key can use:
 ```
@@ -155,7 +156,7 @@ curl -s https://ai.noris.de/anthropic/v1/messages \
        "tools":[{"name":"get_time","description":"Get the time","input_schema":{"type":"object","properties":{}}}],
        "messages":[{"role":"user","content":"Call get_time."}]}'
 ```
-A working setup returns `"type":"message"` with a `tool_use` block and `"stop_reason":"tool_use"`.
+A working setup returns `"type":"message"` with a `tool_use` block and `"stop_reason":"tool_use"`. The curl sends the key in two headers because the gateway accepts `Authorization: Bearer` (and its own `x-bf-vk`) but returns 401 for `x-api-key` alone. Claude Code sends the `apiKeyHelper` output as a Bearer token, so it authenticates.
 
 Create `~/.claude-noris/settings.json`. Use `"apiKeyHelper": "security find-generic-password -s noris-api-key -w"` on macOS:
 ```
@@ -163,7 +164,6 @@ Create `~/.claude-noris/settings.json`. Use `"apiKeyHelper": "security find-gene
   "apiKeyHelper": "cat ~/.config/noris/api-key",
   "env": {
     "ANTHROPIC_BASE_URL": "https://ai.noris.de/anthropic",
-    "ANTHROPIC_API_KEY": "",
     "ANTHROPIC_MODEL": "vllm/release/glm-5-3",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "vllm/release/glm-5-3",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "vllm/release/glm-5-3",
@@ -172,6 +172,8 @@ Create `~/.claude-noris/settings.json`. Use `"apiKeyHelper": "security find-gene
   }
 }
 ```
+Leave `ANTHROPIC_API_KEY` out of this file. If it is set as well as `apiKeyHelper`, Claude Code warns `Both apiKeyHelper and ANTHROPIC_API_KEY set` at launch. If `ANTHROPIC_API_KEY` holds a working key, the session keeps working on that key, so a broken helper goes unnoticed. With only `apiKeyHelper`, there is no warning and the session runs on the key from the helper.
+
 Unlike the Kimi profile, this one maps the tiers to two models: the larger GLM model for the main session and anything that asks for `opus` or `fable`, and the faster DeepSeek model for `sonnet` and `haiku`. `CLAUDE_CODE_SUBAGENT_MODEL` is left out on purpose, so each subagent keeps the tier its definition asks for. Swap in any IDs from the `/v1/models` list. The gateway accepts the `vllm/release/` prefix and reports the model back as `release/<model>`.
 
 If the model list shows a context length, add `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (the smaller of the two models' values) and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` (a bit below it) to `env`, as in Profile 3. Without them, Claude Code assumes 200k.
