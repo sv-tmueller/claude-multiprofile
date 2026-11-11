@@ -206,15 +206,20 @@ For `claude-noris`, `/status` should show `Anthropic base URL: https://ai.noris.
 ## Optional: A Bypass-Mode Alias
 Claude Code normally asks before it runs a command or edits a file. In bypass permissions mode it does not ask. That is useful for a long unattended run and risky everywhere else, so it gets its own alias. Your normal aliases stay as they are, and you choose bypass each time you launch.
 
-Add one of these lines to `~/.zshrc`, next to the aliases from Step 3. Use the line that matches the binary path you found in Step 2, and the profile directory you want:
+The setup differs between your own Mac and a server, so there is one part for each: [On Your Mac](#on-your-mac) and [On a VPS](#on-a-vps).
+
+### On Your Mac
+Add the alias with one command, so you do not have to open `~/.zshrc` in an editor. Use the line that matches the binary path you found in Step 2, and the profile directory you want:
 
 ```
 # Claude Code installed via npm
-alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude --permission-mode bypassPermissions'
+echo "alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude --permission-mode bypassPermissions'" >> ~/.zshrc
 
 # Claude Code installed via homebrew
-alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /opt/homebrew/bin/claude --permission-mode bypassPermissions'
+echo "alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /opt/homebrew/bin/claude --permission-mode bypassPermissions'" >> ~/.zshrc
 ```
+`>>` appends the line to the end of `~/.zshrc`. Run the command once: a second run adds the same line again. `grep claude-bypass ~/.zshrc` shows what is in the file.
+
 The alias has three parts:
 
 - `CLAUDE_CONFIG_DIR=~/.claude-work` picks the profile, as in Step 3. A bypass session shares that profile's login, settings and plugins.
@@ -230,13 +235,75 @@ claude-bypass
 ```
 Anything you add after the alias is passed on, for example `claude-bypass --continue`. Inside the session, `Shift+Tab` cycles to the other permission modes and back.
 
-Why an alias and not a setting ([permission modes](https://code.claude.com/docs/en/permission-modes.md)):
+### On a VPS
+On a server you are often logged in as root, and as root the mode does not start:
+
+```
+--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons
+```
+You may find the tip to start with `IS_SANDBOX=1` to get around this. Do not use it on a normal server. It tells Claude Code that the machine is a sandbox when it is not, so it only switches the check off. As root, a session that asks nothing can reach the whole server: system files, SSH keys, every service. For unattended runs the [permission modes](https://code.claude.com/docs/en/permission-modes.md) page asks for an isolated environment, such as a container or a VM, and a non-root user.
+
+So create a normal user and run Claude Code as that user. The check never fires, and a mistake can only reach that user's files. The commands below are for Debian or Ubuntu.
+
+1. As root, create the user and let it log in with your SSH key. Do not add it to the `sudo` group.
+
+   ```
+   adduser --disabled-password --gecos "" claude
+   mkdir -p /home/claude/.ssh
+   cp ~/.ssh/authorized_keys /home/claude/.ssh/
+   chown -R claude:claude /home/claude/.ssh
+   chmod 700 /home/claude/.ssh
+   chmod 600 /home/claude/.ssh/authorized_keys
+   ```
+2. Log in as that user.
+
+   ```
+   ssh claude@<your-vps>
+   ```
+3. Install Claude Code for this user with the [native installer](https://code.claude.com/docs/en/setup.md) and start it.
+
+   ```
+   curl -fsSL https://claude.ai/install.sh | bash
+   claude
+   ```
+   If `claude` is not found after the install, log out and in again. Inside Claude Code, run `/login`. On a server it prints a link: open it in the browser on your own computer and paste the code back.
+4. Give the user its own access to your repositories, and clone them fresh into its home. Do not hand over repositories that live under `/root`. `gh` is the GitHub CLI; a `git clone` over SSH with a key of this user works too.
+
+   ```
+   gh auth login
+   git config --global user.name "<your name>"
+   git config --global user.email "<your email>"
+   git clone https://github.com/<you>/<repo>.git
+   ```
+5. Add the alias with one command, again without an editor.
+
+   ```
+   echo "alias claude-bypass='claude --permission-mode bypassPermissions'" >> ~/.bashrc
+   source ~/.bashrc
+   ```
+   With one account on the server you do not need a profile directory. If you run several profiles there too, use the same form as on your Mac, with `CLAUDE_CONFIG_DIR=...` in front.
+6. Start a session.
+
+   ```
+   cd ~/<repo>
+   claude-bypass
+   ```
+
+For a long run, start it inside `tmux`, so the session keeps going when your SSH connection drops:
+
+```
+tmux new -s claude
+```
+If a task really needs root, for example restarting one service, give this user a `sudo` rule for exactly that command, not general `sudo`.
+
+### Why an Alias and Not a Setting
+From the [permission modes](https://code.claude.com/docs/en/permission-modes.md) page:
 
 - A project cannot switch this mode on. `bypassPermissions` in a project's `.claude/settings.json` or `.claude/settings.local.json` is ignored, and the session starts in the normal mode.
 - You cannot enter the mode from inside a session that was started without it. It has to be chosen at launch, which is what the alias does.
 - A profile's own `settings.json` can switch it on with `"permissions": { "defaultMode": "bypassPermissions" }`. Then every session of that profile starts in bypass, in every repository. This follows the documentation; I have not tested it.
 
-What to expect:
+### What to Expect
 
 - The first interactive launch shows a warning dialog. Accept it once; if you decline, Claude Code exits. The acceptance is stored in that profile's `settings.json`.
 - The status bar shows `⏵⏵ bypass permissions on`.
