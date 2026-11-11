@@ -2,7 +2,7 @@
 
 A CLI guide to running multiple Claude Code profiles (Claude accounts or third-party model endpoints) on your local machine.
 
-If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup. The same mechanism also gives you a third profile, `claude-kimik3`, that runs Claude Code on [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) through OpenRouter, and a fourth, `claude-noris`, that runs it on self-hosted models from [noris network](https://www.noris.de)'s AI gateway.
+If you have multiple Claude accounts, for example a personal one and a work account, you probably want to switch between them. Here is how I do it in my local setup. The same mechanism also gives you a third profile, `claude-kimik3`, that runs Claude Code on [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) through OpenRouter, and a fourth, `claude-noris`, that runs it on self-hosted models from [noris network](https://www.noris.de)'s AI gateway. An optional alias, `claude-bypass`, starts a profile in bypass permissions mode.
 
 ## How It Works
 Claude Code stores its configuration and session data in a directory on your machine (typically `~/.claude`). The key insight is that you can point Claude Code to a different config directory for each profile using the `CLAUDE_CONFIG_DIR` environment variable. Each directory holds its own independent session, so profiles never interfere with each other. A profile is either a Claude account (you log in with `/login`) or a third-party model endpoint (a `settings.json` that points at another API); either way it is a directory picked with `CLAUDE_CONFIG_DIR`.
@@ -52,9 +52,12 @@ alias claude-personal='CLAUDE_CONFIG_DIR=~/.claude-personal /Users/TM/.local/bin
 alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude'
 alias claude-kimik3='CLAUDE_CONFIG_DIR=~/.claude-kimik3 ANTHROPIC_AUTH_TOKEN="$(security find-generic-password -s openrouter-api-key -w)" /Users/TM/.local/bin/claude'
 alias claude-noris='CLAUDE_CONFIG_DIR=~/.claude-noris /Users/TM/.local/bin/claude'
-alias claude="echo 'Use specific commands: claude-personal, claude-work, claude-kimik3, or claude-noris'"
+alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude --permission-mode bypassPermissions'
+alias claude="echo 'Use specific commands: claude-personal, claude-work, claude-kimik3, claude-noris, or claude-bypass'"
 ```
 The `claude-kimik3` alias reads the OpenRouter key from the macOS Keychain at each launch and passes it as `ANTHROPIC_AUTH_TOKEN`, so the key is never in `~/.zshrc`. You store the key in Step 4. To keep this alias identical to the others, use the `apiKeyHelper` setting described in [Step 4](#step-4-configure-each-profile). The `claude-noris` alias already works that way: its key comes from `apiKeyHelper` in the profile's settings file.
+
+The `claude-bypass` alias is optional too. It is not a new profile: it starts the work profile in bypass permissions mode, where Claude Code runs commands and edits files without asking. Read [Optional: A Bypass-Mode Alias](#optional-a-bypass-mode-alias) before you add it.
 
 The last alias is optional. It overrides the plain `claude` command with a helpful reminder, so you never accidentally launch Claude without the right account context.
 
@@ -189,6 +192,7 @@ claude-personal  # Should launch Claude Code with account 1
 claude-work      # Should launch Claude Code with account 2
 claude-kimik3    # Should launch Claude Code on Kimi K3.1 Pro through OpenRouter
 claude-noris     # Should launch Claude Code on noris-hosted models
+claude-bypass    # Only if you added the optional bypass alias; should show "bypass permissions on"
 claude           # Only if you added the optional alias in Step 3; should print the reminder
 ```
 Inside Claude Code, you can confirm the active session by running:
@@ -198,6 +202,47 @@ Inside Claude Code, you can confirm the active session by running:
 For `claude-kimik3`, `/status` should show `Auth token: ANTHROPIC_AUTH_TOKEN` and `Anthropic base URL: https://openrouter.ai/api`. If it names `ANTHROPIC_API_KEY` or a Claude login instead, the alias or settings file did not reach the session.
 
 For `claude-noris`, `/status` should show `Anthropic base URL: https://ai.noris.de/anthropic`. If it shows `https://ai.noris.de/v1` or no base URL, fix `ANTHROPIC_BASE_URL` in `~/.claude-noris/settings.json`.
+
+## Optional: A Bypass-Mode Alias
+Claude Code normally asks before it runs a command or edits a file. In bypass permissions mode it does not ask. That is useful for a long unattended run and risky everywhere else, so it gets its own alias. Your normal aliases stay as they are, and you choose bypass each time you launch.
+
+Add one of these lines to `~/.zshrc`, next to the aliases from Step 3. Use the line that matches the binary path you found in Step 2, and the profile directory you want:
+
+```
+# Claude Code installed via npm
+alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /Users/TM/.local/bin/claude --permission-mode bypassPermissions'
+
+# Claude Code installed via homebrew
+alias claude-bypass='CLAUDE_CONFIG_DIR=~/.claude-work /opt/homebrew/bin/claude --permission-mode bypassPermissions'
+```
+The alias has three parts:
+
+- `CLAUDE_CONFIG_DIR=~/.claude-work` picks the profile, as in Step 3. A bypass session shares that profile's login, settings and plugins.
+- The binary path starts the real Claude Code, not another alias.
+- `--permission-mode bypassPermissions` starts the session in bypass mode. `--dangerously-skip-permissions` does the same.
+
+Reload your shell and start a session in the repository you want to work on:
+
+```
+source ~/.zshrc
+cd ~/path/to/your/repo
+claude-bypass
+```
+Anything you add after the alias is passed on, for example `claude-bypass --continue`. Inside the session, `Shift+Tab` cycles to the other permission modes and back.
+
+Why an alias and not a setting ([permission modes](https://code.claude.com/docs/en/permission-modes.md)):
+
+- A project cannot switch this mode on. `bypassPermissions` in a project's `.claude/settings.json` or `.claude/settings.local.json` is ignored, and the session starts in the normal mode.
+- You cannot enter the mode from inside a session that was started without it. It has to be chosen at launch, which is what the alias does.
+- A profile's own `settings.json` can switch it on with `"permissions": { "defaultMode": "bypassPermissions" }`. Then every session of that profile starts in bypass, in every repository. This follows the documentation; I have not tested it.
+
+What to expect:
+
+- The first interactive launch shows a warning dialog. Accept it once; if you decline, Claude Code exits. The acceptance is stored in that profile's `settings.json`.
+- The status bar shows `⏵⏵ bypass permissions on`.
+- Deny rules in your settings still block in this mode, and a few actions still ask, for example removing a critical path.
+
+Be aware that the documentation says this mode "offers no protection against prompt injection or unintended actions". Use it only in a repository where a mistake is cheap to undo, for example one with a protected default branch and nothing that reaches outside the code. Do not use it on customer repositories.
 
 ## Pro Tips
 Per-project defaults: You can't pick the profile from inside a project. Claude Code ignores `CLAUDE_CONFIG_DIR` in project and local settings files ([env-vars reference](https://code.claude.com/docs/en/env-vars.md)), and it does not read `.env` files. Set the variable in your shell before Claude Code starts: add a per-project alias, or use a tool like [direnv](https://direnv.net) that exports it when you enter the project directory.
